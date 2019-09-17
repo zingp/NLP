@@ -127,3 +127,6 @@ data/
 *ubyte
 *.model
 *.th
+*.pth
+
+
