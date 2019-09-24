@@ -190,18 +190,20 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
     if FLAGS.debug: # start the tensorflow debugger
       sess = tf_debug.LocalCLIDebugWrapperSession(sess)
       sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
-    while True: # repeats until interrupted
+    step = 0
+    while True: # 循环直到键盘中断（control+c）
+      step += 1
       batch = batcher.next_batch()
 
-      tf.logging.info('running training step...')
+      #tf.logging.info('running training step {}'.format(step))
       t0=time.time()
       results = model.run_train_step(sess, batch)
       t1=time.time()
-      tf.logging.info('seconds for training step: %.3f', t1-t0)
+      tf.logging.info('train step %d , cost  %.3f second' % (step, t1-t0))
 
       loss = results['loss']
       tf.logging.info('loss: %f', loss) # print the loss to screen
-
+      # 如果loss是nan/inf/NINF等，触发异常
       if not np.isfinite(loss):
         raise Exception("Loss is not finite. Stopping.")
 
