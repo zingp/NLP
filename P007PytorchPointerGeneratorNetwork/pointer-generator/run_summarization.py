@@ -40,6 +40,7 @@ tf.app.flags.DEFINE_string('vocab_path', '', 'Path expression to text vocabulary
 # Important settings
 tf.app.flags.DEFINE_string('mode', 'train', 'must be one of train/eval/decode')
 tf.app.flags.DEFINE_boolean('single_pass', False, 'For decode mode only. If True, run eval on the full dataset using a fixed checkpoint, i.e. take the current checkpoint, and use it to produce one summary for each example in the dataset, write the summaries to file and then get ROUGE scores for the whole dataset. If False (default), run concurrent decoding, i.e. repeatedly load latest checkpoint, use it to produce summaries for randomly-chosen examples and log the results to screen, indefinitely.')
+#tf.app.flags.DEFINE_boolean('single_pass', True, 'For decode mode only. If True, run eval on the full dataset using a fixed checkpoint, i.e. take the current checkpoint, and use it to produce one summary for each example in the dataset, write the summaries to file and then get ROUGE scores for the whole dataset. If False (default), run concurrent decoding, i.e. repeatedly load latest checkpoint, use it to produce summaries for randomly-chosen examples and log the results to screen, indefinitely.')
 
 # Where to save output
 tf.app.flags.DEFINE_string('log_root', '', 'Root directory for all logging.')
@@ -48,7 +49,7 @@ tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be sa
 # Hyperparameters
 tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states')
 tf.app.flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings')
-tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
+tf.app.flags.DEFINE_integer('batch_size', 32, 'minibatch size')
 tf.app.flags.DEFINE_integer('max_enc_steps', 400, 'max timesteps of encoder (max source text tokens)')
 tf.app.flags.DEFINE_integer('max_dec_steps', 100, 'max timesteps of decoder (max summary tokens)')
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
@@ -65,11 +66,14 @@ tf.app.flags.DEFINE_boolean('pointer_gen', True, 'If True, use pointer-generator
 
 # Coverage hyperparameters
 tf.app.flags.DEFINE_boolean('coverage', False, 'Use coverage mechanism. Note, the experiments reported in the ACL paper train WITHOUT coverage until converged, and then train for a short phase WITH coverage afterwards. i.e. to reproduce the results in the ACL paper, turn this off for most of training then turn on for a short phase at the end.')
+#tf.app.flags.DEFINE_boolean('coverage', True, 'Use coverage mechanism. Note, the experiments reported in the ACL paper train WITHOUT coverage until converged, and then train for a short phase WITH coverage afterwards. i.e. to reproduce the results in the ACL paper, turn this off for most of training then turn on for a short phase at the end.')
 tf.app.flags.DEFINE_float('cov_loss_wt', 1.0, 'Weight of coverage loss (lambda in the paper). If zero, then no incentive to minimize coverage loss.')
 
 # Utility flags, for restoring and changing checkpoints
 tf.app.flags.DEFINE_boolean('convert_to_coverage_model', False, 'Convert a non-coverage model to a coverage model. Turn this on and run in train mode. Your current training model will be copied to a new version (same name with _cov_init appended) that will be ready to run with coverage flag turned on, for the coverage training stage.')
+#tf.app.flags.DEFINE_boolean('convert_to_coverage_model', True, 'Convert a non-coverage model to a coverage model. Turn this on and run in train mode. Your current training model will be copied to a new version (same name with _cov_init appended) that will be ready to run with coverage flag turned on, for the coverage training stage.')
 tf.app.flags.DEFINE_boolean('restore_best_model', False, 'Restore the best model in the eval/ dir and save it in the train/ dir, ready to be used for further training. Useful for early stopping, or if your training checkpoint has become corrupted with e.g. NaN values.')
+#tf.app.flags.DEFINE_boolean('restore_best_model', True, 'Restore the best model in the eval/ dir and save it in the train/ dir, ready to be used for further training. Useful for early stopping, or if your training checkpoint has become corrupted with e.g. NaN values.')
 
 # Debugging. See https://www.tensorflow.org/programmers_guide/debugger
 tf.app.flags.DEFINE_boolean('debug', False, "Run in tensorflow's debug mode (watches for NaN/inf values)")
@@ -185,24 +189,26 @@ def setup_training(model, batcher):
 
 def run_training(model, batcher, sess_context_manager, sv, summary_writer):
   """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
-  tf.logging.info("starting run_training")
+  tf.logging.info("starting run_training ... ")
   with sess_context_manager as sess:
     if FLAGS.debug: # start the tensorflow debugger
       sess = tf_debug.LocalCLIDebugWrapperSession(sess)
       sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
-    step = 0
     while True: # 循环直到键盘中断（control+c）
-      step += 1
       batch = batcher.next_batch()
 
       #tf.logging.info('running training step {}'.format(step))
       t0=time.time()
       results = model.run_train_step(sess, batch)
       t1=time.time()
-      tf.logging.info('train step %d , cost  %.3f second' % (step, t1-t0))
+      # tf.logging.info('train step %d , cost  %.3f second' % (step, t1-t0))
 
       loss = results['loss']
-      tf.logging.info('loss: %f', loss) # print the loss to screen
+      summaries = results['summaries'] 
+      train_step = results['global_step']
+
+      #tf.logging.info('Train step %d , cost  %.3f second, loss: %f' %(step, t1-t0, loss)) # print the loss to screen
+      print('Train steps %d , cost  %.3f second, loss: %f' % (train_step, t1-t0, loss)) # 打印训练step信息
       # 如果loss是nan/inf/NINF等，触发异常
       if not np.isfinite(loss):
         raise Exception("Loss is not finite. Stopping.")
@@ -212,9 +218,8 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
         tf.logging.info("coverage_loss: %f", coverage_loss) # print the coverage loss to screen
 
       # get the summaries and iteration number so we can write summaries to tensorboard
-      summaries = results['summaries'] # we will write these summaries to tensorboard using summary_writer
-      train_step = results['global_step'] # we need this to update our running average loss
-
+      # we will write these summaries to tensorboard using summary_writer
+      # we need this to update our running average loss
       summary_writer.add_summary(summaries, train_step) # write the summaries
       if train_step % 100 == 0: # flush the summary writer every so often
         summary_writer.flush()
@@ -230,7 +235,6 @@ def run_eval(model, batcher, vocab):
   summary_writer = tf.summary.FileWriter(eval_dir)
   running_avg_loss = 0 # the eval job keeps a smoother, running average loss to tell it when to implement early stopping
   best_loss = None  # will hold the best loss achieved so far
-
   while True:
     _ = util.load_ckpt(saver, sess) # load a new checkpoint
     batch = batcher.next_batch() # get the next batch
@@ -239,18 +243,18 @@ def run_eval(model, batcher, vocab):
     t0=time.time()
     results = model.run_eval_step(sess, batch)
     t1=time.time()
-    tf.logging.info('seconds for batch: %.2f', t1-t0)
+    # tf.logging.info('seconds for batch: %.2f', t1-t0)
 
     # print the loss and coverage loss to screen
     loss = results['loss']
-    tf.logging.info('loss: %f', loss)
+    train_step = results['global_step']
+    print('steps %d, seconds for batch: %.2f, loss: %f'%(results['global_step'], t1-t0, loss))
     if FLAGS.coverage:
       coverage_loss = results['coverage_loss']
       tf.logging.info("coverage_loss: %f", coverage_loss)
 
     # add summaries
     summaries = results['summaries']
-    train_step = results['global_step']
     summary_writer.add_summary(summaries, train_step)
 
     # calculate running avg loss
@@ -259,7 +263,7 @@ def run_eval(model, batcher, vocab):
     # If running_avg_loss is best so far, save this checkpoint (early stopping).
     # These checkpoints will appear as bestmodel-<iteration_number> in the eval dir
     if best_loss is None or running_avg_loss < best_loss:
-      tf.logging.info('Found new best model with %.3f running_avg_loss. Saving to %s', running_avg_loss, bestmodel_save_path)
+      print('Found new best model with %.3f running_avg_loss. Saving to %s' % (running_avg_loss, bestmodel_save_path))
       saver.save(sess, bestmodel_save_path, global_step=train_step, latest_filename='checkpoint_best')
       best_loss = running_avg_loss
 
