@@ -14,7 +14,7 @@ import sys
 import scipy
 import scipy.sparse
 import math
-from Queue import Queue
+from queue import Queue
 
 
 # ----- utils工具 -----
@@ -31,7 +31,7 @@ def chunkize_serial(iterable, chunksize, as_numpy=False):
     """
     Return elements from the iterable in `chunksize`-ed lists. The last returned
     element may be smaller (if length of collection is not divisible by `chunksize`).
-    >>> print list(grouper(xrange(10), 3))
+    >>> print list(grouper(range(10), 3))
     [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
     """
     it = iter(iterable)
@@ -114,7 +114,7 @@ class RepeatCorpusNTimes(object):
         self.n = n
 
     def __iter__(self):
-        for _ in xrange(self.n):
+        for _ in range(self.n):
             for document in self.corpus:
                 yield document
 
